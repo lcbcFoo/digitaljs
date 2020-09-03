@@ -2,7 +2,7 @@
   "name": "digitaljs",
   "version": "0.6.6",
   "description": "Digital logic simulator",
-  "main": "src/index.mjs",
+  "main": "src/index.js",
   "scripts": {
     "prepare": "npm run prod",
     "dev": "webpack --mode development",
@@ -65,7 +65,7 @@
       "mjs"
     ],
     "testMatch": [
-      "**/*.test.mjs"
+      "**/*.test.js"
     ]
   }
 }

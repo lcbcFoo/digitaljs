@@ -4,8 +4,8 @@ import joint from 'jointjs';
 import _ from 'lodash';
 import $ from 'jquery';
 import Backbone from 'backbone';
-import * as help from './help.mjs';
-import * as cells from './cells.mjs';
+import * as help from './help.js';
+import * as cells from './cells.js';
 import { Vector3vl } from '3vl';
 
 let uniq_cntr = 0;

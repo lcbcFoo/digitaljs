@@ -2,7 +2,7 @@
 
 import 'core-js';
 import 'regenerator-runtime/runtime';
-import { HeadlessCircuit, getCellType } from '../src/circuit.mjs';
+import { HeadlessCircuit, getCellType } from '../src/circuit.js';
 import { Vector3vl } from '3vl';
 
 class SingleCellTestFixture {

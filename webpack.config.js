@@ -28,12 +28,12 @@ module.exports = {
         umdNamedDefine: true,
         globalObject: 'this'
     },
-    entry: "./src/index.mjs",
+    entry: "./src/index.js",
     devtool: "source-map",
     module: {
         rules: [
             { // workaround for Webpack borkedness
-                test: /\.mjs/,
+                test: /\.js/,
                 type: "javascript/auto"
             },
             {
