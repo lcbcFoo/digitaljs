@@ -48,7 +48,7 @@
   "homepage": "https://github.com/tilk/digitaljs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tilk/digitaljs.git"
+    "url": "https://github.com/lcbcFoo/digitaljs.git"
   },
   "jest": {
     "testEnvironment": "jest-environment-node",
