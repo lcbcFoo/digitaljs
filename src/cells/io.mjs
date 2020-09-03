@@ -5,7 +5,6 @@ import { Box, BoxView } from './base';
 import _ from 'lodash';
 import $ from 'jquery';
 import bigInt from 'big-integer';
-import { display3vl } from '../help.mjs';
 import { Vector3vl } from '3vl';
 
 // Things with numbers
@@ -18,6 +17,7 @@ export const NumBase = Box.define('NumBase', {
         Box.prototype.initialize.apply(this, arguments);
 
         this.on('change:bits', (_, bits) => {
+            const display3vl = this.graph._display3vl;
             const displays = display3vl.usableDisplays(this.numbaseType, this.get('bits'));
             if (!displays.includes(this.get('numbase')))
                 this.set('numbase', 'hex');
@@ -73,6 +73,7 @@ export const NumBaseView = BoxView.extend({
     makeNumBaseSelector() {
         this.$('select.numbase').empty();
         const numbase = this.model.get('numbase');
+        const display3vl = this.model.graph._display3vl;
         for (const base of display3vl.usableDisplays(this.model.numbaseType, this.model.get('bits'))) {
             const opt = $('<option>')
                 .attr('value', base)
@@ -95,7 +96,8 @@ export const NumDisplay = NumBase.define('NumDisplay', {
     attrs: {
         value: { 
             refX: .5, refY: .5,
-            textVerticalAnchor: 'middle'
+            textVerticalAnchor: 'middle',
+            text: '0'
         },
     }
 }, {
@@ -110,11 +112,6 @@ export const NumDisplay = NumBase.define('NumDisplay', {
         this.on('change:bits', (_, bits) => {
             this.setPortsBits({ in: bits });
         });
-
-        const settext = () => this.attr('text.value/text', display3vl.show(this.get('numbase'), this.get('inputSignals').in));
-        settext();
-        
-        this.on('change:inputSignals change:numbase', settext);
     },
     markup: NumBase.prototype.markup.concat([{
             tagName: 'text',
@@ -128,7 +125,21 @@ export const NumDisplay = NumBase.define('NumDisplay', {
     gateParams: NumBase.prototype.gateParams.concat(['bits']),
     numbaseType: 'show'
 });
-export const NumDisplayView = NumBaseView;
+export const NumDisplayView = NumBaseView.extend({
+    confirmUpdate(flags) {
+        NumBaseView.prototype.confirmUpdate.apply(this, arguments);
+        if (this.hasFlag(flags, 'SIGNAL') ||
+            this.hasFlag(flags, 'NUMBASE')) this.settext();
+    },
+    settext() {
+        const display3vl = this.model.graph._display3vl;
+        this.$('text.value tspan').text(display3vl.show(this.model.get('numbase'), this.model.get('inputSignals').in));
+    },
+    update() {
+        NumBaseView.prototype.update.apply(this, arguments);
+        this.settext();
+    }
+});
 
 // Numeric entry -- parses a number from a text box
 export const NumEntry = NumBase.define('NumEntry', {
@@ -176,7 +187,8 @@ export const NumEntry = NumBase.define('NumEntry', {
         }
     ]),
     setLogicValue: function(sig) {
-        console.assert(sig.bits == this.get('bits'));
+        if (sig.bits != this.get('bits')) 
+            throw new Error("setLogicValue: wrong number of bits");
         this.set('buttonState', sig);
     },
     gateParams: NumBase.prototype.gateParams.concat(['bits']),
@@ -191,27 +203,30 @@ export const NumEntryView = NumBaseView.extend({
         "mousedown input": "stopprop",
         "change input": "change"
     }, NumBaseView.prototype.events),
-    initialize(args) {
-        NumBaseView.prototype.initialize.apply(this, arguments);
-        this.settext();
-    },
     confirmUpdate(flags) {
         NumBaseView.prototype.confirmUpdate.apply(this, arguments);
         if (this.hasFlag(flags, 'SIGNAL') ||
             this.hasFlag(flags, 'NUMBASE')) this.settext();
     },
     settext() {
+        const display3vl = this.model.graph._display3vl;
         this.$('input').val(display3vl.show(this.model.get('numbase'), this.model.get('buttonState')));
         this.$('input').removeClass('invalid');
     },
     change(evt) {
         const numbase = this.model.get('numbase');
-        if (display3vl.validate(numbase, evt.target.value)) {
-            const val = display3vl.read(numbase, evt.target.value, this.model.get('bits'));
+        const bits = this.model.get('bits');
+        const display3vl = this.model.graph._display3vl;
+        if (display3vl.validate(numbase, evt.target.value, bits)) {
+            const val = display3vl.read(numbase, evt.target.value, bits);
             this.model.set('buttonState', val);
         } else {
             this.$('input').addClass('invalid');
         }
+    },
+    update() {
+        NumBaseView.prototype.update.apply(this, arguments);
+        this.settext();
     }
 });
 
@@ -245,13 +260,13 @@ export const Lamp = Box.define('Lamp', {
     }
 });
 export const LampView = BoxView.extend({
-    attrs: {
-        signal: {
+    attrs: _.merge({}, BoxView.prototype.attrs, {
+        lamp: {
             high: { led: { 'fill': '#03c03c' } },
             low: { led: { 'fill': '#fc7c68' } },
             undef: { led: { 'fill': '#bfc5c6' } }
         }
-    },
+    }),
     confirmUpdate(flags) {
         BoxView.prototype.confirmUpdate.apply(this, arguments);
         if (this.hasFlag(flags, 'SIGNAL')) {
@@ -260,7 +275,7 @@ export const LampView = BoxView.extend({
     },
     updateLamp() {
         const signal = this.model.get('inputSignals').in;
-        const attrs = this.attrs.signal[
+        const attrs = this.attrs.lamp[
             signal.isHigh ? 'high' :
             signal.isLow ? 'low' : 'undef'
         ];
@@ -305,16 +320,18 @@ export const Button = Box.define('Button', {
         }
     ]),
     setLogicValue: function(sig) {
+        if (sig.bits != 1) 
+            throw new Error("setLogicValue: wrong number of bits");
         this.set('buttonState', sig.isHigh);
     }
 });
 export const ButtonView = BoxView.extend({
-    attrs: {
-        signal: {
+    attrs: _.merge({}, BoxView.prototype.attrs, {
+        button: {
             high: { btnface: { 'fill': 'black' } },
             low: { btnface: { 'fill': 'white' } }
         }
-    },
+    }),
     presentationAttributes: BoxView.addPresentationAttributes({
         buttonState: 'SIGNAL',
     }),
@@ -326,7 +343,7 @@ export const ButtonView = BoxView.extend({
     },
     updateButton() {
         const buttonState = this.model.get('buttonState');
-        const attrs = this.attrs.signal[
+        const attrs = this.attrs.button[
             buttonState ? 'high' : 'low'
         ];
         this.applyAttrs(attrs);
@@ -396,7 +413,8 @@ export const IOView = BoxView.extend({
 export const Input = IO.define('Input', {}, {
     io_dir: 'out',
     setLogicValue: function(sig) {
-        console.assert(sig.bits == this.get('bits'));
+        if (sig.bits != this.get('bits')) 
+            throw new Error("setLogicValue: wrong number of bits");
         this.set('outputSignals', { out: sig });
     }
 });
@@ -405,6 +423,11 @@ export const InputView = IOView;
 // Output model
 export const Output = IO.define('Output', {}, {
     io_dir: 'in',
+    changeInputSignals: function(sigs) {
+        const subcir = this.graph.get('subcircuit');
+        if (subcir == null) return; // not inside a subcircuit
+        subcir.setOutput(sigs.in, this.get('net'));
+    },
     getLogicValue: function() {
         return this.get('inputSignals').in;
     }
@@ -420,7 +443,8 @@ export const Constant = NumBase.define('Constant', {
     attrs: {
         value: {
             refX: .5, refY: .5,
-            textVerticalAnchor: 'middle'
+            textVerticalAnchor: 'middle',
+            text: '0'
         }
     }
 }, {
@@ -434,18 +458,13 @@ export const Constant = NumBase.define('Constant', {
         ];
         
         NumBase.prototype.initialize.apply(this, arguments);
-        
-        const settext = () => this.attr('text.value/text', display3vl.show(this.get('numbase'), this.get('constantCache')));
-        settext();
-        
+       
         this.on('change:constant', (_, constant) => {
             const bits = constant.length;
             this.setPortsBits({ out: bits });
             this.set('bits', bits);
             this.set('constantCache', Vector3vl.fromBin(constant, bits));
-            settext();
         });
-        this.on('change:numbase', settext);
     },
     operation: function() {
         return { out: this.get('constantCache') };
@@ -459,7 +478,21 @@ export const Constant = NumBase.define('Constant', {
     gateParams: NumBase.prototype.gateParams.concat(['constant']),
     numbaseType: 'show'
 });
-export const ConstantView = NumBaseView;
+export const ConstantView = NumBaseView.extend({
+    confirmUpdate(flags) {
+        NumBaseView.prototype.confirmUpdate.apply(this, arguments);
+        if (this.hasFlag(flags, 'SIGNAL2') ||
+            this.hasFlag(flags, 'NUMBASE')) this.settext();
+    },
+    settext() {
+        const display3vl = this.model.graph._display3vl;
+        this.$('text.value tspan').text(display3vl.show(this.model.get('numbase'), this.model.get('outputSignals').out));
+    },
+    update() {
+        NumBaseView.prototype.update.apply(this, arguments);
+        this.settext();
+    }
+});
 
 // Clock
 export const Clock = Box.define('Clock', {

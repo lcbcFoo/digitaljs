@@ -3,7 +3,6 @@
 import * as joint from 'jointjs';
 import _ from 'lodash';
 import bigInt from 'big-integer';
-import { display3vl } from '../help.mjs';
 import { Vector3vl } from '3vl';
 
 export const portGroupAttrs = {
@@ -107,6 +106,22 @@ export const Gate = joint.shapes.basic.Generic.define('Gate', {
             });
         }
     },
+    changeOutputSignals: function(sigs) {
+        _.chain(this.graph.getConnectedLinks(this, {outbound: true}))
+            .groupBy((wire) => wire.get('source').port)
+            .forEach((wires, port) => 
+                wires.forEach((wire) => wire.set('signal', sigs[port])))
+            .value();
+    },
+    setInput: function(sig, port) {
+        const signals = _.clone(this.get('inputSignals'));
+        signals[port] = sig;
+        this.set('inputSignals', signals);
+    },
+    clearInput: function(port) {
+        const bits = this.getPort(port).bits;
+        this.setInput(Vector3vl.xes(bits), port);
+    },
     bindAttrToProp: function(attr, prop) {
         this.attr(attr, this.get(prop));
         this.on('change:' + prop, (_, val) => this.attr(attr, val));
@@ -148,12 +163,13 @@ export const Gate = joint.shapes.basic.Generic.define('Gate', {
             const signals = this.get(signame);
             signals[portid] = Vector3vl.xes(bits);
             this.set(signame, signals);
+            
+            this.graph.getConnectedLinks(this, { outbound: port.dir === 'out', inbound: port.dir === 'in' })
+                .filter((wire) => wire.get(port.dir === 'out' ? 'source' : 'target').port === portid)
+                .forEach((wire) => wire.checkConnection());
         }
         //trigger port changes on model and view
         this.trigger('change:ports', this, ports);
-        
-        //todo: handle connected wires
-        console.warn('Beta property change support: Connected wires are currently not rechecked for connection');
     },
     getBitsText: function(bits) {
         return bits > 1 ? bits : '';
@@ -274,10 +290,11 @@ export const GateView = joint.dia.ElementView.extend({
             dir === 'out' ? this.model.get('outputSignals') :
             _.merge({}, this.model.get('inputSignals'), this.model.get('outputSignals'));
         for (const port in signals) {
+            const signal = signals[port];
             const attrs = this.attrs.signal[
-                signals[port].isHigh ? 'high' :
-                signals[port].isLow ? 'low' :
-                signals[port].isDefined ? 'def' : 'undef'
+                !signal.isDefined ? 'undef' :
+                signal.isHigh ? 'high' :
+                signal.isLow ? 'low' : 'def'
             ];
             this.applyPortAttrs(port, attrs);
         }
@@ -306,11 +323,15 @@ export const Wire = joint.shapes.standard.Link.define('Wire', {
         line: {
             class: 'connection',
             targetMarker: null
+        },
+        wrapper: {
+            stroke: 'red'
         }
     },
 
     signal: Vector3vl.xes(1),
     bits: 1,
+    warning: false,
 
     // show behind gates
     z: 0
@@ -338,6 +359,51 @@ export const Wire = joint.shapes.standard.Link.define('Wire', {
             });
         }
     },
+    onAdd: function() {
+        this.changeSource(this.get('source'));
+    },
+    remove: function() {
+        //remove warning if inside subcircuit
+        this.set('warning', false);
+        const tar = this.get('target');
+        const target = this.graph.getCell(tar.id);
+        if (target && 'port' in tar) {
+            target.clearInput(tar.port);
+        }
+        joint.shapes.standard.Link.prototype.remove.apply(this, arguments);
+    },
+    changeSignal(sig) {
+        const target = this.getTargetElement();
+        if (target) target.setInput(sig, this.get('target').port);
+    },
+    changeSource(src) {
+        const source = this.graph.getCell(src.id);
+        if (source && 'port' in src) {
+            this.set('bits', source.getPort(src.port).bits);
+            this.checkConnection();
+            //set signal after checking connection to avoid false signal propagation
+            this.set('signal', source.get('outputSignals')[src.port]);
+        } else {
+            this.set('signal', Vector3vl.xes(this.get('bits')));
+        }
+    },
+    changeTarget(tar) {
+        const target = this.graph.getCell(tar.id);
+        if (target && 'port' in tar) {
+            target.setInput(this.get('signal'), tar.port);
+        }
+        this.checkConnection();
+        const preTar = this.previous('target');
+        const preTarget = this.graph.getCell(preTar.id);
+        if (preTarget && 'port' in preTar) {
+            preTarget.clearInput(preTar.port);
+        }
+    },
+    checkConnection() {
+        const tar = this.get('target');
+        const target = this.graph.getCell(tar.id);
+        this.set('warning', target && target.getPort(tar.port).bits !== this.get('bits'));
+    },
     getWireParams: function(layout) {
         const connector = {
             from: {
@@ -354,6 +420,14 @@ export const Wire = joint.shapes.standard.Link.define('Wire', {
         if (layout && this.has('vertices') && this.get('vertices').length > 0)
             connector.vertices = _.cloneDeep(this.get('vertices'));
         return connector;
+    },
+    getWirePath: function() {
+        const hier = [];
+        for (let sc = this.graph.get('subcircuit'); sc != null; sc = sc.graph.get('subcircuit')) {
+            if (!sc.has('label')) return null;
+            hier.push(sc.get('label'));
+        }
+        return hier.reverse();
     }
 });
 
@@ -431,12 +505,17 @@ export const WireView = joint.dia.LinkView.extend({
         bits: {
             bus: { line: { 'stroke-width': '4px' } },
             single: { line: { 'stroke-width': '2px' } }
+        },
+        warning: {
+            warn: { wrapper: { 'stroke-opacity': '0.5' } },
+            none: { wrapper: { 'stroke-opacity': '0' } }
         }
     },
 
     presentationAttributes: joint.dia.LinkView.addPresentationAttributes({
         signal: 'SIGNAL',
-        bits: 'BITS'
+        bits: 'BITS',
+        warning: 'WARNING'
     }),
 
     initialize() {
@@ -448,10 +527,13 @@ export const WireView = joint.dia.LinkView.extend({
         joint.dia.LinkView.prototype.confirmUpdate.apply(this, arguments);
         if (this.hasFlag(flags, 'SIGNAL')) {
             this.updateSignal();
-        };
+        }
         if (this.hasFlag(flags, 'BITS')) {
             this.updateBits();
-        };
+        }
+        if (this.hasFlag(flags, 'WARNING')) {
+            this.updateWarning();
+        }
         if (this.hasFlag(flags, 'INIT')) {
             if (this.hasTools()) return;
 
@@ -488,9 +570,9 @@ export const WireView = joint.dia.LinkView.extend({
     updateSignal() {
         const signal = this.model.get('signal');
         const attrs = this.attrs.signal[
+            !signal.isDefined ? 'undef' :
             signal.isHigh ? 'high' :
-            signal.isLow ? 'low' :
-            signal.isDefined ? 'def' : 'undef'
+            signal.isLow ? 'low' : 'def'
         ];
         this.applyAttrs(attrs);
     },
@@ -499,6 +581,14 @@ export const WireView = joint.dia.LinkView.extend({
         const bits = this.model.get('bits');
         const attrs = this.attrs.bits[
             bits > 1 ? 'bus' : 'single'
+        ];
+        this.applyAttrs(attrs);
+    },
+
+    updateWarning() {
+        const warning = this.model.get('warning');
+        const attrs = this.attrs.warning[
+            warning ? 'warn' : 'none'
         ];
         this.applyAttrs(attrs);
     },
@@ -514,6 +604,12 @@ export const WireView = joint.dia.LinkView.extend({
         joint.dia.LinkView.prototype.update.apply(this, arguments);
         this.updateSignal();
         this.updateBits();
+        this.updateWarning();
+    },
+
+    onRemove() {
+        joint.dia.LinkView.prototype.onRemove.apply(this, arguments);
+        this.hover_remove();
     },
 
     mouseenter: function(evt) {
@@ -532,7 +628,10 @@ export const WireView = joint.dia.LinkView.extend({
     mouseleave: function(evt) {
         joint.dia.LinkView.prototype.mouseleave.apply(this, arguments);
         this.hideTools();
+        this.hover_remove();
+    },
 
+    hover_remove() {
         if (this.wire_hover) {
             this.wire_hover.remove();
             this.wire_hover = null;
@@ -543,6 +642,7 @@ export const WireView = joint.dia.LinkView.extend({
     hover_gentext() {
         if (!this.wire_hover) return;
         const sig = this.model.get('signal');
+        const display3vl = this.model.graph._display3vl;
         const hovertext = [
             'Hex: ' + display3vl.show('hex', sig) + '<br>',
             'Dec: ' + display3vl.show('dec', sig) + '<br>',

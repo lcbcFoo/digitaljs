@@ -5,7 +5,6 @@ import _ from 'lodash';
 import $ from 'jquery';
 import Backbone from 'backbone';
 import * as help from './help.mjs';
-import { display3vl } from './help.mjs';
 import { Vector3vl } from '3vl';
 import { Waveform, drawWaveform, defaultSettings, extendSettings, calcGridStep } from 'wavecanvas';
 import ResizeObserver from 'resize-observer-polyfill';
@@ -71,31 +70,17 @@ export class Monitor {
     getWiresDesc() {
         return this.getWires().map(wire => {
             if (!wire.has('netname')) return;
-            const hier = [];
-            for (let sc = wire.graph.get('subcircuit'); sc != null; sc = sc.graph.get('subcircuit')) {
-                if (!sc.has('label')) return;
-                hier.push(sc.get('label'));
-            }
             return {
                 name: wire.get('netname'),
-                path: hier.reverse(),
+                path: wire.getWirePath(),
                 bits: wire.get('bits')
             };
         }).filter(x => x !== undefined);
     }
     loadWiresDesc(wd) {
-        const idx = this._circuit.makeLabelIndex();
         for (const w of wd) {
-            const f = (p, i) => {
-                if (p == w.path.length) {
-                    const e = i.wires[w.name];
-                    if (e && e.get('bits') == w.bits) this.addWire(e);
-                } else {
-                    const s = i.subcircuits[w.path[p]];
-                    if (s) f(p+1, s);
-                }
-            };
-            f(0, idx);
+            const e = this._circuit.findWireByLabel(w.name, w.path);
+            if (e && e.get('bits') == w.bits) this.addWire(e);
         }
     }
     _handleChange(wire, signal) {
@@ -121,6 +106,7 @@ export class MonitorView extends Backbone.View {
         this.listenTo(this.model, 'add', this._handleAdd);
         this.listenTo(this.model, 'remove', this._handleRemove);
         this.listenTo(this.model, 'change', this._handleChange);
+        this.listenTo(this.model._circuit, "display:add", () => { this.render() });
         this.listenTo(this.model._circuit, 'postUpdateGates', (tick) => {
             if (this._live) this.start = tick - this._width / this._settings.pixelsPerTick;
             this._settings.present = tick;
@@ -130,9 +116,14 @@ export class MonitorView extends Backbone.View {
             }, {timeout: 100});
         });
         this.render();
+        this._resizeObserver = new ResizeObserver(() => {
+            this._canvasResize();
+        });
+        this._resizeObserver.observe(this.el);
         function evt_wireid(e) {
             return $(e.target).closest('tr').attr('wireid');
         }
+        const display3vl = this.model._circuit._display3vl;
         this.$el.on('click', 'button[name=remove]', (e) => { this.model.removeWire(evt_wireid(e)); });
         this.$el.on('input', 'select[name=base]', (e) => { 
             const base = e.target.value;
@@ -151,10 +142,10 @@ export class MonitorView extends Backbone.View {
         this.$el.on('change', 'input[name=trigger]', (e) => {
             const settings = this._settingsFor.get(evt_wireid(e));
             const base = settings.base;
+            const bits = this.model._wires.get(evt_wireid(e)).waveform.bits;
             if (e.target.value == "") {
                 settings.trigger = "";
-            } else if (display3vl.validate(base, e.target.value)) {
-                const bits = this.model._wires.get(evt_wireid(e)).waveform.bits;
+            } else if (display3vl.validate(base, e.target.value, bits)) {
                 settings.trigger = display3vl.read(base, e.target.value, bits);
                 e.target.value = display3vl.show(base, settings.trigger);
             } else {
@@ -195,10 +186,6 @@ export class MonitorView extends Backbone.View {
             this.$('table').append(this._handleAdd(wobj.wire));
         }
         this._canvasResize();
-        this._resizeObserver = new ResizeObserver(() => {
-            this._canvasResize();
-        });
-        this._resizeObserver.observe(this.el);
         return this;
     }
     shutdown() {
@@ -261,6 +248,7 @@ export class MonitorView extends Backbone.View {
         }
     }
     _draw(wireid) {
+        const display3vl = this.model._circuit._display3vl;
         const canvas = this.$('tr[wireid="'+wireid+'"]').find('canvas');
         const waveform = this.model._wires.get(wireid).waveform;
         drawWaveform(waveform, canvas[0].getContext('2d'), this._settingsFor.get(wireid), display3vl);
@@ -303,8 +291,9 @@ export class MonitorView extends Backbone.View {
     _createRow(wire) {
         const wireid = getWireId(wire);
         const settings = this._settingsFor.get(wireid);
+        const display3vl = this.model._circuit._display3vl;
         const base_sel = wire.get('bits') > 1 
-            ? (this._baseSelectorMarkup instanceof Function ? this._baseSelectorMarkup(wire.get('bits'), settings.base) : this._baseSelectorMarkup) 
+            ? (this._baseSelectorMarkup instanceof Function ? this._baseSelectorMarkup(display3vl, wire.get('bits'), settings.base) : this._baseSelectorMarkup) 
             : '';
         const trigger = wire.get('bits') > 1 ? this._busTriggerMarkup : this._bitTriggerMarkup;
         const row = $('<tr><td class="name"></td><td>'+base_sel+'</td><td>'+trigger+'</td><td>'+this._removeButtonMarkup+'</td><td><canvas class="wavecanvas" height="30" draggable="true"></canvas></td></tr>');

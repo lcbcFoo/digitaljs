@@ -6,7 +6,6 @@ import * as joint from 'jointjs';
 import { Box, BoxView } from './base';
 import bigInt from 'big-integer';
 import * as help from '../help.mjs';
-import { display3vl } from '../help.mjs';
 import { Vector3vl, Mem3vl } from '3vl';
 
 // Memory cell
@@ -215,6 +214,7 @@ export const MemoryView = BoxView.extend({
     },
     displayEditor(evt) {
         evt.stopPropagation();
+        const display3vl = this.model.graph._display3vl;
         const div = $('<div>', {
             title: "Memory contents: " + this.model.get('label')
         }).appendTo('html > body');
@@ -229,7 +229,7 @@ export const MemoryView = BoxView.extend({
 //            '<button type="button" class="btn btn-secondary" title="Save contents">Save</button>' +
 //            '</div>' + 
             '<div class="input-group">' +
-            help.baseSelectMarkupHTML(this.model.get('bits'), 'hex') +
+            help.baseSelectMarkupHTML(display3vl, this.model.get('bits'), 'hex') +
             '</div>' +
             '</div>' +
             '<table class="memeditor">' +
@@ -301,8 +301,9 @@ export const MemoryView = BoxView.extend({
             const c = target.closest('td').index() - 1;
             const r = target.closest('tr').index();
             const addr = address + r * columns + c;
-            if (display3vl.validate(numbase, evt.target.value)) {
-                const val = display3vl.read(numbase, evt.target.value, this.model.get('bits'));
+            const bits = this.model.get('bits');
+            if (display3vl.validate(numbase, evt.target.value, bits)) {
+                const val = display3vl.read(numbase, evt.target.value, bits);
                 memdata.set(addr, val);
                 this.model.updateOutputs(addr);
                 target.removeClass('invalid');

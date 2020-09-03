@@ -3,60 +3,6 @@
 import bigInt from 'big-integer';
 import { Vector3vl, Display3vlWithRegex, Display3vl } from '3vl';
 
-export const display3vl = new Display3vl();
-
-class Display3vlDec extends Display3vlWithRegex {
-    constructor() {
-        super('[0-9]*|x');
-    }
-    get name() {
-        return "dec";
-    }
-    get sort() {
-        return 0;
-    }
-    can(kind, bits) {
-        return true;
-    }
-    read(data, bits) {
-        if (data == 'x') return Vector3vl.xes(bits);
-        return bigint2sig(bigInt(data), bits);
-    }
-    show(data) {
-        if (!data.isFullyDefined) return 'x';
-        return sig2bigint(data).toString();
-    }
-    size(bits) {
-        return Math.ceil(bits / Math.log2(10))
-    }
-};
-
-class Display3vlDec2c extends Display3vlWithRegex {
-    constructor() {
-        super('-?[0-9]*|x');
-    }
-    get name() {
-        return "dec2c";
-    }
-    get sort() {
-        return 0;
-    }
-    can(kind, bits) {
-        return bits > 0;
-    }
-    read(data, bits) {
-        if (data == 'x') return Vector3vl.xes(bits);
-        return bigint2sig(bigInt(data), bits);
-    }
-    show(data) {
-        if (!data.isFullyDefined) return 'x';
-        return sig2bigint(data, true).toString();
-    }
-    size(bits) {
-        return 1 + Math.ceil(bits / Math.log2(10))
-    }
-};
-
 const controlCodes20 = [
     'NUL', 'SOH', 'STX', 'ETX', 'EOT', 'ENQ', 'ACK', 'BEL', 
     'BS',  'HT',  'LF',  'VT',  'FF',  'CR',  'SO',  'SI', 
@@ -64,7 +10,7 @@ const controlCodes20 = [
     'CAN', 'EM',  'SUB', 'ESC', 'FS',  'GS',  'RS',  'US',
     'SP',  'DEL'];
 
-class Display3vlASCII extends Display3vlWithRegex {
+export class Display3vlASCII extends Display3vlWithRegex {
     constructor() {
         super('[\x20-\x7e\xa0-\xff\ufffd\u2400-\u2421]|' + controlCodes20.join('|'))
     }
@@ -109,11 +55,8 @@ class Display3vlASCII extends Display3vlWithRegex {
     }
 }
 
-display3vl.addDisplay(new Display3vlDec());
-display3vl.addDisplay(new Display3vlDec2c());
-display3vl.addDisplay(new Display3vlASCII());
         
-export function baseSelectMarkupHTML(bits, base) { 
+export function baseSelectMarkupHTML(display3vl, bits, base) { 
     const markup = display3vl.usableDisplays('read', bits)
         .map(n => '<option value="' + n + '"' + (n == base ? ' selected="selected"' : '') +'>' + n + '</option>');
     return '<select name="base">' + markup.join("") + '</select>';

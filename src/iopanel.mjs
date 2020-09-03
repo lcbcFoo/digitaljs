@@ -6,7 +6,6 @@ import $ from 'jquery';
 import Backbone from 'backbone';
 import * as help from './help.mjs';
 import * as cells from './cells.mjs';
-import { display3vl } from './help.mjs';
 import { Vector3vl } from '3vl';
 
 let uniq_cntr = 0;
@@ -26,6 +25,7 @@ export class IOPanelView extends Backbone.View {
         this.render();
         this.listenTo(this.model._graph, 'add', this._handleAdd);
         this.listenTo(this.model._graph, 'remove', this._handleRemove);
+        this.listenTo(this.model, "display:add", () => { this.render() });
     }
     render() {
         this.$el.html('<form>' + this._inputPanelMarkup + this._outputPanelMarkup + '</form>');
@@ -56,6 +56,7 @@ export class IOPanelView extends Backbone.View {
             .attr('for', this._id(cell.id));
     }
     _handleAddInput(cell) {
+        const display3vl = this.model._display3vl;
         const row = $(this._rowMarkup)
             .appendTo(this.$('div[data-iopanel="input"]'));
         this._addLabelFor(row, cell);
@@ -78,16 +79,17 @@ export class IOPanelView extends Backbone.View {
             const ui = $(this._inputMarkup)
                 .appendTo(col);
             let base = 'hex';
-            const base_sel = $(this._baseSelectorMarkup(cell.get('bits'), base))
+            const base_sel = $(this._baseSelectorMarkup(display3vl, cell.get('bits'), base))
                 .appendTo(col);
             let sz = display3vl.size(base, cell.get('bits'));
+            const bits = cell.get('bits');
             const inp = ui.find('input').addBack('input')
                 .prop('size', sz)
                 .prop('maxlength', sz)
                 .prop('pattern', display3vl.pattern(base))
                 .on('change', (e) => {
-                    if (!display3vl.validate(base, e.target.value)) return;
-                    cell.setLogicValue(display3vl.read(base, e.target.value, cell.get('bits')));
+                    if (!display3vl.validate(base, e.target.value, bits)) return;
+                    cell.setLogicValue(display3vl.read(base, e.target.value, bits));
                 });
             const updater = (cell, sigs) => {
                 ui.val(display3vl.show(base, sigs.out));
@@ -105,6 +107,7 @@ export class IOPanelView extends Backbone.View {
         }
     }
     _handleAddOutput(cell) {
+        const display3vl = this.model._display3vl;
         const row = $(this._rowMarkup)
             .appendTo(this.$('div[data-iopanel="input"]'));
         this._addLabel(row, cell);
@@ -126,7 +129,7 @@ export class IOPanelView extends Backbone.View {
             const ui = $(this._inputMarkup)
                 .appendTo(col);
             let base = 'hex';
-            const base_sel = $(this._baseSelectorMarkup(cell.get('bits'), base))
+            const base_sel = $(this._baseSelectorMarkup(display3vl, cell.get('bits'), base))
                 .appendTo(col);
             const sz = display3vl.size(base, cell.get('bits'));
             const inp = ui.find('input').addBack('input')
